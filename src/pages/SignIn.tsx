@@ -1,35 +1,75 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/components/ui/use-toast";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const SignIn = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  // Check for existing session on mount
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        navigate("/");
+      }
+    };
+    
+    checkSession();
+
+    // Set up auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        navigate("/");
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [navigate]);
+
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoading(true);
+    setError(null);
+
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
       
-      if (error) throw error;
-      
-      navigate("/");
+      if (signInError) {
+        throw signInError;
+      }
+
+      if (data.session) {
+        toast({
+          title: "Success",
+          description: "Successfully signed in!",
+        });
+        navigate("/");
+      }
     } catch (error: any) {
+      setError(error.message);
       toast({
         variant: "destructive",
         title: "Error signing in",
         description: error.message,
       });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -41,6 +81,12 @@ const SignIn = () => {
           <h1 className="text-2xl font-bold mb-2">Welcome back</h1>
           <p className="text-gray-600">Sign in to your account</p>
         </div>
+
+        {error && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
 
         <form onSubmit={handleSignIn} className="space-y-6">
           <div className="space-y-2">
@@ -54,6 +100,7 @@ const SignIn = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                disabled={loading}
               />
             </div>
           </div>
@@ -77,11 +124,13 @@ const SignIn = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                disabled={loading}
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                disabled={loading}
               >
                 {showPassword ? (
                   <EyeOff className="h-5 w-5" />
@@ -92,8 +141,12 @@ const SignIn = () => {
             </div>
           </div>
 
-          <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700">
-            Sign in
+          <Button 
+            type="submit" 
+            className="w-full bg-blue-600 hover:bg-blue-700"
+            disabled={loading}
+          >
+            {loading ? "Signing in..." : "Sign in"}
           </Button>
         </form>
 
