@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { useNavigate } from "react-router-dom";
 
 const plans = [
   {
@@ -54,20 +55,17 @@ const plans = [
 
 export const Pricing = () => {
   const { toast } = useToast();
+  const navigate = useNavigate();
 
   const handleSubscribe = async (priceId: string) => {
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session) {
-      toast({
-        title: "Authentication required",
-        description: "Please sign in to subscribe to a plan",
-        variant: "destructive",
-      });
-      return;
-    }
-
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        navigate('/signin');
+        return;
+      }
+
       const { data, error } = await supabase.functions.invoke('create-checkout-session', {
         body: { priceId },
       });
@@ -76,8 +74,10 @@ export const Pricing = () => {
       
       if (data?.url) {
         window.location.href = data.url;
+      } else {
+        throw new Error('No checkout URL returned');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Subscription error:', error);
       toast({
         title: "Error",

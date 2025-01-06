@@ -34,7 +34,7 @@ const SignIn = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center p-4">
+    <div className="flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-white rounded-lg shadow-lg p-8">
         <div className="mb-8 text-center">
           <div className="text-blue-600 text-3xl mb-2">✨</div>
@@ -61,7 +61,10 @@ const SignIn = () => {
           <div className="space-y-2">
             <div className="flex justify-between">
               <label className="text-sm font-medium">Password</label>
-              <Link to="/forgot-password" className="text-sm text-blue-600 hover:text-blue-700">
+              <Link 
+                to="/forgot-password" 
+                className="text-sm text-blue-600 hover:text-blue-700"
+              >
                 Forgot password?
               </Link>
             </div>

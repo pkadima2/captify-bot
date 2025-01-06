@@ -8,6 +8,8 @@ import { supabase } from "@/integrations/supabase/client";
 import Index from "./pages/Index";
 import SignIn from "./pages/SignIn";
 import SignUp from "./pages/SignUp";
+import { Header } from "./components/Header";
+import ForgotPassword from "./pages/ForgotPassword";
 
 const queryClient = new QueryClient();
 
@@ -40,38 +42,44 @@ const App = () => {
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          <Routes>
-            <Route
-              path="/"
-              element={
-                isAuthenticated ? (
-                  <Index />
-                ) : (
-                  <Navigate to="/signin" replace />
-                )
-              }
-            />
-            <Route
-              path="/signin"
-              element={
-                !isAuthenticated ? (
-                  <SignIn />
-                ) : (
-                  <Navigate to="/" replace />
-                )
-              }
-            />
-            <Route
-              path="/signup"
-              element={
-                !isAuthenticated ? (
-                  <SignUp />
-                ) : (
-                  <Navigate to="/" replace />
-                )
-              }
-            />
-          </Routes>
+          <div className="min-h-screen flex flex-col">
+            <Header />
+            <main className="flex-1">
+              <Routes>
+                <Route
+                  path="/"
+                  element={
+                    isAuthenticated ? (
+                      <Index />
+                    ) : (
+                      <Navigate to="/signin" replace />
+                    )
+                  }
+                />
+                <Route
+                  path="/signin"
+                  element={
+                    !isAuthenticated ? (
+                      <SignIn />
+                    ) : (
+                      <Navigate to="/" replace />
+                    )
+                  }
+                />
+                <Route
+                  path="/signup"
+                  element={
+                    !isAuthenticated ? (
+                      <SignUp />
+                    ) : (
+                      <Navigate to="/" replace />
+                    )
+                  }
+                />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
+              </Routes>
+            </main>
+          </div>
         </BrowserRouter>
       </TooltipProvider>
     </QueryClientProvider>
