@@ -1,24 +1,72 @@
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Menu } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useNavigate } from "react-router-dom";
+import { useToast } from "@/components/ui/use-toast";
 
 export const Header = () => {
+  const navigate = useNavigate();
+  const { toast } = useToast();
+
+  const handleSignOut = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      navigate("/signin");
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error signing out",
+        description: error.message,
+      });
+    }
+  };
+
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b">
-      <div className="container flex items-center justify-between h-16">
-        <div className="flex items-center space-x-4">
-          <span className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-primary to-purple-400">
+    <header className="border-b">
+      <div className="container flex h-16 items-center justify-between">
+        <Link to="/" className="flex items-center space-x-2">
+          <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-violet-600 bg-clip-text text-transparent">
             EngagePerfect
           </span>
-        </div>
-        <nav className="hidden md:flex items-center space-x-6">
-          <Button variant="ghost">Features</Button>
-          <Button variant="ghost">Pricing</Button>
-          <Button variant="ghost">About</Button>
-          <Button variant="default">Get Started</Button>
+        </Link>
+
+        <nav className="flex items-center gap-6">
+          <Link to="/features" className="text-sm font-medium hover:text-primary">
+            Features
+          </Link>
+          <Link to="/pricing" className="text-sm font-medium hover:text-primary">
+            Pricing
+          </Link>
+          <Link to="/about" className="text-sm font-medium hover:text-primary">
+            About
+          </Link>
         </nav>
-        <Button variant="ghost" size="icon" className="md:hidden">
-          <Menu className="h-5 w-5" />
-        </Button>
+
+        <div className="flex items-center gap-4">
+          {supabase.auth.getSession() ? (
+            <Button
+              variant="outline"
+              onClick={handleSignOut}
+            >
+              Sign Out
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="ghost"
+                onClick={() => navigate("/signin")}
+              >
+                Sign In
+              </Button>
+              <Button
+                onClick={() => navigate("/signup")}
+              >
+                Sign Up
+              </Button>
+            </>
+          )}
+        </div>
       </div>
     </header>
   );
