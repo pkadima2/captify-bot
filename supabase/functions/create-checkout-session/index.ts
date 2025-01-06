@@ -38,12 +38,16 @@ serve(async (req) => {
       apiVersion: '2023-10-16',
     });
 
-    // Get the price ID from the request
+    // Get the price ID and origin URL from the request
     const { priceId } = await req.json();
     if (!priceId) {
       console.error('No price ID provided');
       throw new Error('No price ID provided');
     }
+
+    // Get the origin from the request headers or default to a fallback URL
+    const origin = req.headers.get('origin') || 'http://localhost:5173';
+    console.log('Origin URL:', origin);
 
     console.log('Creating checkout session with price ID:', priceId);
 
@@ -98,8 +102,8 @@ serve(async (req) => {
         },
       ],
       mode: 'subscription',
-      success_url: `${req.headers.get('origin')}/`,
-      cancel_url: `${req.headers.get('origin')}/pricing`,
+      success_url: `${origin}/`,
+      cancel_url: `${origin}/`,
     });
 
     console.log('Checkout session created successfully:', session.id);
