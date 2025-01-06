@@ -13,19 +13,18 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  try {
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
+  const supabaseAdmin = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
       }
-    );
+    }
+  );
 
-    // Get the user information
+  try {
     const authHeader = req.headers.get('Authorization')!;
     const token = authHeader.replace('Bearer ', '');
     const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
@@ -130,9 +129,28 @@ serve(async (req) => {
           },
         ],
         mode: 'subscription',
-        success_url: `${origin}/`,
+        success_url: `${origin}/?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${origin}/`,
+        subscription_data: {
+          metadata: {
+            supabase_user_id: user.id,
+          },
+        },
       });
+
+      // Update the subscription record with the session ID
+      const { error: updateError } = await supabaseAdmin
+        .from('stripe_subscriptions')
+        .update({
+          stripe_subscription_id: session.subscription?.toString() || '',
+          is_active: true,
+        })
+        .eq('user_id', user.id);
+
+      if (updateError) {
+        console.error('Error updating subscription record:', updateError);
+        // Don't throw here, as the checkout session is already created
+      }
 
       console.log('Checkout session created successfully:', session.id);
       return new Response(
