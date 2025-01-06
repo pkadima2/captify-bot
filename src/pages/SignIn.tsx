@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/components/ui/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AuthError, AuthApiError } from "@supabase/supabase-js";
 
 const SignIn = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -16,7 +17,6 @@ const SignIn = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // Check for existing session on mount
   useEffect(() => {
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -27,7 +27,6 @@ const SignIn = () => {
     
     checkSession();
 
-    // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
         navigate("/");
@@ -38,6 +37,20 @@ const SignIn = () => {
       subscription.unsubscribe();
     };
   }, [navigate]);
+
+  const getErrorMessage = (error: AuthError) => {
+    if (error instanceof AuthApiError) {
+      switch (error.message) {
+        case "Email not confirmed":
+          return "Please check your email and confirm your account before signing in.";
+        case "Invalid login credentials":
+          return "Invalid email or password. Please check your credentials and try again.";
+        default:
+          return error.message;
+      }
+    }
+    return error.message;
+  };
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,7 +64,14 @@ const SignIn = () => {
       });
       
       if (signInError) {
-        throw signInError;
+        const errorMessage = getErrorMessage(signInError);
+        setError(errorMessage);
+        toast({
+          variant: "destructive",
+          title: "Error signing in",
+          description: errorMessage,
+        });
+        return;
       }
 
       if (data.session) {
@@ -62,11 +82,12 @@ const SignIn = () => {
         navigate("/");
       }
     } catch (error: any) {
-      setError(error.message);
+      const errorMessage = error instanceof AuthError ? getErrorMessage(error) : "An unexpected error occurred";
+      setError(errorMessage);
       toast({
         variant: "destructive",
         title: "Error signing in",
-        description: error.message,
+        description: errorMessage,
       });
     } finally {
       setLoading(false);
