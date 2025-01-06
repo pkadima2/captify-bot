@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Check, Sparkles } from "lucide-react";
+import { Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -68,20 +68,17 @@ export const Pricing = () => {
     }
 
     try {
-      const response = await fetch('/api/create-checkout-session', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ priceId }),
+      const { data, error } = await supabase.functions.invoke('create-checkout-session', {
+        body: { priceId },
       });
 
-      const { url } = await response.json();
-      if (url) {
-        window.location.href = url;
+      if (error) throw error;
+      
+      if (data?.url) {
+        window.location.href = data.url;
       }
     } catch (error) {
+      console.error('Subscription error:', error);
       toast({
         title: "Error",
         description: "Failed to initiate checkout. Please try again.",
