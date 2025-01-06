@@ -20,6 +20,12 @@ serve(async (req) => {
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
     );
 
     // Get the user information
@@ -51,69 +57,75 @@ serve(async (req) => {
 
     console.log('Creating checkout session with price ID:', priceId);
 
-    // First, check if a stripe_subscriptions record already exists
-    const { data: existingSubscription, error: subscriptionError } = await supabaseAdmin
-      .from('stripe_subscriptions')
-      .select('stripe_customer_id')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (subscriptionError) {
-      console.error('Error checking existing subscription:', subscriptionError);
-      throw new Error('Failed to check existing subscription');
-    }
-
-    let customerId = existingSubscription?.stripe_customer_id;
-
-    if (!customerId) {
-      console.log('Creating new Stripe customer...');
-      // Create a new customer in Stripe
-      const customer = await stripe.customers.create({
-        email: user.email,
-        metadata: {
-          supabase_user_id: user.id,
-        },
-      });
-      customerId = customer.id;
-
-      // Store the customer ID in our database
-      const { error: insertError } = await supabaseAdmin
+    try {
+      // First, check if a stripe_subscriptions record already exists
+      const { data: existingSubscription, error: subscriptionError } = await supabaseAdmin
         .from('stripe_subscriptions')
-        .insert({
-          user_id: user.id,
-          stripe_customer_id: customerId,
-          stripe_subscription_id: '', // Will be updated when subscription is created
-          is_active: false,
+        .select('stripe_customer_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (subscriptionError) {
+        console.error('Error checking existing subscription:', subscriptionError);
+        throw new Error('Failed to check existing subscription');
+      }
+
+      let customerId = existingSubscription?.stripe_customer_id;
+
+      if (!customerId) {
+        console.log('Creating new Stripe customer...');
+        // Create a new customer in Stripe
+        const customer = await stripe.customers.create({
+          email: user.email,
+          metadata: {
+            supabase_user_id: user.id,
+          },
         });
+        customerId = customer.id;
 
-      if (insertError) {
-        console.error('Error storing customer ID:', insertError);
-        throw new Error('Failed to store customer information');
+        // Store the customer ID in our database
+        const { error: insertError } = await supabaseAdmin
+          .from('stripe_subscriptions')
+          .insert({
+            user_id: user.id,
+            stripe_customer_id: customerId,
+            stripe_subscription_id: '',
+            is_active: false,
+          });
+
+        if (insertError) {
+          console.error('Error storing customer ID:', insertError);
+          throw new Error('Failed to store customer information');
+        }
       }
+
+      console.log('Creating checkout session...');
+      const session = await stripe.checkout.sessions.create({
+        customer: customerId,
+        line_items: [
+          {
+            price: priceId,
+            quantity: 1,
+          },
+        ],
+        mode: 'subscription',
+        success_url: `${origin}/`,
+        cancel_url: `${origin}/`,
+      });
+
+      console.log('Checkout session created successfully:', session.id);
+      return new Response(
+        JSON.stringify({ url: session.url }),
+        { 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200,
+        }
+      );
+
+    } catch (stripeError) {
+      console.error('Stripe or database error:', stripeError);
+      throw new Error(stripeError.message || 'Failed to create checkout session');
     }
-
-    console.log('Creating checkout session...');
-    const session = await stripe.checkout.sessions.create({
-      customer: customerId,
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
-        },
-      ],
-      mode: 'subscription',
-      success_url: `${origin}/`,
-      cancel_url: `${origin}/`,
-    });
-
-    console.log('Checkout session created successfully:', session.id);
-    return new Response(
-      JSON.stringify({ url: session.url }),
-      { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200,
-      }
-    );
 
   } catch (error) {
     console.error('Error in create-checkout-session:', error);
