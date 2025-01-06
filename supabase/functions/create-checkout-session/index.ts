@@ -13,18 +13,19 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const supabaseClient = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-  );
-
   try {
     console.log('Starting checkout session creation...');
     
-    // Get the session or user object
+    // Initialize Supabase client with service role key for admin access
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    );
+
+    // Get the user information
     const authHeader = req.headers.get('Authorization')!;
     const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token);
+    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
     
     if (userError || !user?.email) {
       console.error('User authentication error:', userError);
@@ -47,16 +48,22 @@ serve(async (req) => {
     console.log('Creating checkout session with price ID:', priceId);
 
     // First, check if a stripe_subscriptions record already exists
-    const { data: existingSubscription } = await supabaseClient
+    const { data: existingSubscription, error: subscriptionError } = await supabaseAdmin
       .from('stripe_subscriptions')
       .select('stripe_customer_id')
       .eq('user_id', user.id)
       .maybeSingle();
 
+    if (subscriptionError) {
+      console.error('Error checking existing subscription:', subscriptionError);
+      throw new Error('Failed to check existing subscription');
+    }
+
     let customerId = existingSubscription?.stripe_customer_id;
 
     if (!customerId) {
       console.log('Creating new Stripe customer...');
+      // Create a new customer in Stripe
       const customer = await stripe.customers.create({
         email: user.email,
         metadata: {
@@ -66,11 +73,12 @@ serve(async (req) => {
       customerId = customer.id;
 
       // Store the customer ID in our database
-      const { error: insertError } = await supabaseClient
+      const { error: insertError } = await supabaseAdmin
         .from('stripe_subscriptions')
         .insert({
           user_id: user.id,
           stripe_customer_id: customerId,
+          stripe_subscription_id: '', // Will be updated when subscription is created
           is_active: false,
         });
 
@@ -80,7 +88,7 @@ serve(async (req) => {
       }
     }
 
-    console.log('Creating payment session...');
+    console.log('Creating checkout session...');
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       line_items: [
@@ -94,7 +102,7 @@ serve(async (req) => {
       cancel_url: `${req.headers.get('origin')}/pricing`,
     });
 
-    console.log('Payment session created:', session.id);
+    console.log('Checkout session created successfully:', session.id);
     return new Response(
       JSON.stringify({ url: session.url }),
       { 
@@ -102,8 +110,9 @@ serve(async (req) => {
         status: 200,
       }
     );
+
   } catch (error) {
-    console.error('Error creating payment session:', error);
+    console.error('Error in create-checkout-session:', error);
     return new Response(
       JSON.stringify({ error: error.message }),
       { 
