@@ -9,91 +9,166 @@ const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') || '', {
 const supabaseAdmin = createClient(
   Deno.env.get('SUPABASE_URL') ?? '',
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    }
+  }
 );
 
 serve(async (req) => {
+  const signature = req.headers.get('stripe-signature');
+  
   try {
-    const signature = req.headers.get('stripe-signature');
     if (!signature) {
-      return new Response('No signature', { status: 400 });
+      throw new Error('No signature found');
     }
 
     const body = await req.text();
-    let event;
-
-    try {
-      event = stripe.webhooks.constructEvent(
-        body,
-        signature,
-        Deno.env.get('STRIPE_WEBHOOK_SIGNING_SECRET') || ''
-      );
-    } catch (err) {
-      console.error('Error verifying webhook signature:', err);
-      return new Response('Invalid signature', { status: 400 });
+    const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SIGNING_SECRET');
+    if (!webhookSecret) {
+      throw new Error('Webhook secret not configured');
     }
 
-    console.log('Processing event:', event.type);
+    const event = stripe.webhooks.constructEvent(
+      body,
+      signature,
+      webhookSecret
+    );
+
+    console.log('Processing webhook event:', event.type);
 
     switch (event.type) {
       case 'customer.subscription.created':
-      case 'customer.subscription.updated':
-        const subscription = event.data.object;
-        const customer = await stripe.customers.retrieve(subscription.customer as string);
+      case 'customer.subscription.updated': {
+        const subscription = event.data.object as Stripe.Subscription;
+        const customerId = subscription.customer as string;
         
+        // Get customer email from Stripe
+        const customer = await stripe.customers.retrieve(customerId);
         if (!customer.email) {
           throw new Error('No customer email found');
         }
 
-        // Update user's premium status based on subscription status
-        const { error: updateError } = await supabaseAdmin
+        console.log('Updating subscription for customer:', customer.email);
+
+        // Get user_id from profiles table using email
+        const { data: profileData, error: profileError } = await supabaseAdmin
+          .from('profiles')
+          .select('id')
+          .eq('email', customer.email)
+          .single();
+
+        if (profileError || !profileData) {
+          throw new Error(`No profile found for email: ${customer.email}`);
+        }
+
+        const userId = profileData.id;
+
+        // Update stripe_subscriptions table
+        const { error: subscriptionError } = await supabaseAdmin
+          .from('stripe_subscriptions')
+          .upsert({
+            user_id: userId,
+            stripe_customer_id: customerId,
+            stripe_subscription_id: subscription.id,
+            is_active: subscription.status === 'active',
+            updated_at: new Date().toISOString()
+          }, {
+            onConflict: 'user_id'
+          });
+
+        if (subscriptionError) {
+          throw new Error(`Error updating subscription: ${subscriptionError.message}`);
+        }
+
+        // Update profiles table
+        const { error: profileUpdateError } = await supabaseAdmin
           .from('profiles')
           .update({ 
             is_premium: subscription.status === 'active',
             updated_at: new Date().toISOString()
           })
-          .eq('email', customer.email);
+          .eq('id', userId);
 
-        if (updateError) {
-          throw updateError;
+        if (profileUpdateError) {
+          throw new Error(`Error updating profile: ${profileUpdateError.message}`);
         }
 
-        console.log(`Updated premium status for user ${customer.email}`);
+        console.log('Successfully updated subscription and profile for:', customer.email);
         break;
+      }
 
-      case 'customer.subscription.deleted':
-        const deletedSubscription = event.data.object;
-        const deletedCustomer = await stripe.customers.retrieve(deletedSubscription.customer as string);
+      case 'customer.subscription.deleted': {
+        const subscription = event.data.object as Stripe.Subscription;
+        const customerId = subscription.customer as string;
         
-        if (!deletedCustomer.email) {
+        // Get customer email from Stripe
+        const customer = await stripe.customers.retrieve(customerId);
+        if (!customer.email) {
           throw new Error('No customer email found');
         }
 
-        // Set premium status to false when subscription is cancelled
-        const { error: deleteError } = await supabaseAdmin
+        console.log('Processing subscription deletion for:', customer.email);
+
+        // Get user_id from profiles table using email
+        const { data: profileData, error: profileError } = await supabaseAdmin
+          .from('profiles')
+          .select('id')
+          .eq('email', customer.email)
+          .single();
+
+        if (profileError || !profileData) {
+          throw new Error(`No profile found for email: ${customer.email}`);
+        }
+
+        const userId = profileData.id;
+
+        // Update stripe_subscriptions table
+        const { error: subscriptionError } = await supabaseAdmin
+          .from('stripe_subscriptions')
+          .update({
+            is_active: false,
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', userId);
+
+        if (subscriptionError) {
+          throw new Error(`Error updating subscription: ${subscriptionError.message}`);
+        }
+
+        // Update profiles table
+        const { error: profileUpdateError } = await supabaseAdmin
           .from('profiles')
           .update({ 
             is_premium: false,
             updated_at: new Date().toISOString()
           })
-          .eq('email', deletedCustomer.email);
+          .eq('id', userId);
 
-        if (deleteError) {
-          throw deleteError;
+        if (profileUpdateError) {
+          throw new Error(`Error updating profile: ${profileUpdateError.message}`);
         }
 
-        console.log(`Removed premium status for user ${deletedCustomer.email}`);
+        console.log('Successfully processed subscription deletion for:', customer.email);
         break;
+      }
     }
 
     return new Response(JSON.stringify({ received: true }), {
       headers: { 'Content-Type': 'application/json' },
       status: 200,
     });
+
   } catch (error) {
     console.error('Error processing webhook:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      headers: { 'Content-Type': 'application/json' },
-      status: 400,
-    });
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      {
+        headers: { 'Content-Type': 'application/json' },
+        status: 400,
+      }
+    );
   }
 });
