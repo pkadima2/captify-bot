@@ -8,23 +8,24 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    console.log('Starting checkout session creation...');
-    
-    // Initialize Supabase client with service role key for admin access
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
       {
         auth: {
           autoRefreshToken: false,
-          persistSession: false
-        }
+          persistSession: false,
+        },
+        global: {
+          headers: {
+            Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+          },
+        },
       }
     );
 
@@ -44,7 +45,7 @@ serve(async (req) => {
       apiVersion: '2023-10-16',
     });
 
-    // Get the price ID and origin URL from the request
+    // Get the price ID from the request
     const { priceId } = await req.json();
     if (!priceId) {
       console.error('No price ID provided');
@@ -83,7 +84,7 @@ serve(async (req) => {
         });
         customerId = customer.id;
 
-        // Store the customer ID in our database
+        console.log('Storing customer information in database...');
         const { error: insertError } = await supabaseAdmin
           .from('stripe_subscriptions')
           .insert({
@@ -95,7 +96,7 @@ serve(async (req) => {
 
         if (insertError) {
           console.error('Error storing customer ID:', insertError);
-          throw new Error('Failed to store customer information');
+          throw new Error(`Failed to store customer information: ${insertError.message}`);
         }
       }
 
