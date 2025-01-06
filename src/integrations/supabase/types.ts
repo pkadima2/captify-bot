@@ -9,7 +9,185 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      activity_logs: {
+        Row: {
+          action: string
+          created_at: string
+          details: string | null
+          id: string
+          user_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          details?: string | null
+          id?: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          details?: string | null
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      captions: {
+        Row: {
+          caption: string
+          created_at: string
+          hashtags: string[] | null
+          id: string
+          idea_id: string
+          platform: string
+          tone: string
+        }
+        Insert: {
+          caption: string
+          created_at?: string
+          hashtags?: string[] | null
+          id?: string
+          idea_id: string
+          platform: string
+          tone: string
+        }
+        Update: {
+          caption?: string
+          created_at?: string
+          hashtags?: string[] | null
+          id?: string
+          idea_id?: string
+          platform?: string
+          tone?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "captions_idea_id_fkey"
+            columns: ["idea_id"]
+            isOneToOne: false
+            referencedRelation: "content_ideas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      content_ideas: {
+        Row: {
+          caption: string | null
+          created_at: string
+          cta: string | null
+          goal: string
+          id: string
+          idea_title: string
+          niche: string
+          platform: string
+          user_id: string
+          visual_content: string | null
+        }
+        Insert: {
+          caption?: string | null
+          created_at?: string
+          cta?: string | null
+          goal: string
+          id?: string
+          idea_title: string
+          niche: string
+          platform: string
+          user_id: string
+          visual_content?: string | null
+        }
+        Update: {
+          caption?: string | null
+          created_at?: string
+          cta?: string | null
+          goal?: string
+          id?: string
+          idea_title?: string
+          niche?: string
+          platform?: string
+          user_id?: string
+          visual_content?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "content_ideas_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          is_premium: boolean | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id: string
+          is_premium?: boolean | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          is_premium?: boolean | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      stripe_subscriptions: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean | null
+          stripe_customer_id: string
+          stripe_subscription_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          stripe_customer_id: string
+          stripe_subscription_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          stripe_customer_id?: string
+          stripe_subscription_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stripe_subscriptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
