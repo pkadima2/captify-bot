@@ -31,39 +31,17 @@ export const Header = () => {
           </span>
         </Link>
 
-        <nav className="flex items-center gap-6">
-          <Link to="/features" className="text-sm font-medium hover:text-primary">
-            Features
-          </Link>
-          <Link to="/pricing" className="text-sm font-medium hover:text-primary">
-            Pricing
-          </Link>
-          <Link to="/about" className="text-sm font-medium hover:text-primary">
-            About
-          </Link>
-        </nav>
-
         <div className="flex items-center gap-4">
           {supabase.auth.getSession() ? (
-            <Button
-              variant="outline"
-              onClick={handleSignOut}
-            >
+            <Button variant="outline" onClick={handleSignOut}>
               Sign Out
             </Button>
           ) : (
             <>
-              <Button
-                variant="ghost"
-                onClick={() => navigate("/signin")}
-              >
+              <Button variant="ghost" onClick={() => navigate("/signin")}>
                 Sign In
               </Button>
-              <Button
-                onClick={() => navigate("/signup")}
-              >
-                Sign Up
-              </Button>
+              <Button onClick={() => navigate("/signup")}>Sign Up</Button>
             </>
           )}
         </div>

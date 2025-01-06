@@ -47,7 +47,7 @@ const plans = [
       "🎁 2 months free",
       "Priority feature access",
     ],
-    priceId: "plink_1QcYhbDPEDopwk6ypPV15fON",
+    priceId: "price_1QcYNsDPEDopwk6ya966qx7w",
     buttonText: "Subscribe",
     badge: "Best Value",
   },
