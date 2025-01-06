@@ -4,12 +4,12 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Sparkles } from "lucide-react";
+import { Users, Package, MessageSquare, BookOpen, DollarSign, Instagram, Facebook, Twitter, Linkedin, Music2, Briefcase, Coffee, Smile, Lightbulb, Megaphone } from "lucide-react";
 
 export const Generator = () => {
   const [niche, setNiche] = useState("");
+  const [goal, setGoal] = useState("");
   const [platform, setPlatform] = useState("instagram");
   const [tone, setTone] = useState("professional");
   const [loading, setLoading] = useState(false);
@@ -20,11 +20,35 @@ export const Generator = () => {
   });
   const { toast } = useToast();
 
+  const goals = [
+    { id: "grow", label: "Grow Followers", icon: Users },
+    { id: "promote", label: "Promote Products", icon: Package },
+    { id: "engage", label: "Drive Engagement", icon: MessageSquare },
+    { id: "share", label: "Share Knowledge", icon: BookOpen },
+    { id: "sell", label: "Sell Products/Services", icon: DollarSign },
+  ];
+
+  const platforms = [
+    { id: "instagram", label: "Instagram", icon: Instagram },
+    { id: "facebook", label: "Facebook", icon: Facebook },
+    { id: "twitter", label: "Twitter", icon: Twitter },
+    { id: "linkedin", label: "LinkedIn", icon: Linkedin },
+    { id: "tiktok", label: "TikTok", icon: Music2 },
+  ];
+
+  const tones = [
+    { id: "professional", label: "Professional", icon: Briefcase },
+    { id: "casual", label: "Casual", icon: Coffee },
+    { id: "humorous", label: "Humorous", icon: Smile },
+    { id: "inspirational", label: "Inspirational", icon: Lightbulb },
+    { id: "persuasive", label: "Persuasive", icon: Megaphone },
+  ];
+
   const handleGenerate = async () => {
-    if (!niche) {
+    if (!niche || !goal || !platform || !tone) {
       toast({
-        title: "Please enter your niche",
-        description: "We need to know your niche to generate relevant content.",
+        title: "Missing information",
+        description: "Please fill in all fields before generating content.",
         variant: "destructive",
       });
       return;
@@ -50,46 +74,75 @@ export const Generator = () => {
     <section className="py-12">
       <div className="container px-4 md:px-6">
         <Card className="p-6 glass-card animate-in">
-          <div className="space-y-6">
+          <div className="space-y-8">
             <div className="space-y-2">
               <Label htmlFor="niche">Your Niche</Label>
               <Input
                 id="niche"
-                placeholder="e.g., Digital Marketing, Fitness, Tech"
+                placeholder="e.g., Fitness, Fashion, Technology"
                 value={niche}
                 onChange={(e) => setNiche(e.target.value)}
+                className="text-base md:text-sm"
               />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="platform">Platform</Label>
-                <Select value={platform} onValueChange={setPlatform}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select platform" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="instagram">Instagram</SelectItem>
-                    <SelectItem value="twitter">Twitter</SelectItem>
-                    <SelectItem value="linkedin">LinkedIn</SelectItem>
-                    <SelectItem value="facebook">Facebook</SelectItem>
-                  </SelectContent>
-                </Select>
+            <div className="space-y-4">
+              <Label>What's your goal?</Label>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                {goals.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <Button
+                      key={item.id}
+                      variant={goal === item.id ? "default" : "outline"}
+                      className="h-auto flex-col gap-2 p-4"
+                      onClick={() => setGoal(item.id)}
+                    >
+                      <Icon className="h-5 w-5" />
+                      <span className="text-xs text-center">{item.label}</span>
+                    </Button>
+                  );
+                })}
               </div>
+            </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="tone">Content Tone</Label>
-                <Select value={tone} onValueChange={setTone}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select tone" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="professional">Professional</SelectItem>
-                    <SelectItem value="casual">Casual</SelectItem>
-                    <SelectItem value="humorous">Humorous</SelectItem>
-                    <SelectItem value="educational">Educational</SelectItem>
-                  </SelectContent>
-                </Select>
+            <div className="space-y-4">
+              <Label>Choose your platform</Label>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                {platforms.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <Button
+                      key={item.id}
+                      variant={platform === item.id ? "default" : "outline"}
+                      className="h-auto flex-col gap-2 p-4"
+                      onClick={() => setPlatform(item.id)}
+                    >
+                      <Icon className="h-5 w-5" />
+                      <span className="text-xs">{item.label}</span>
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <Label>Select your tone</Label>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                {tones.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <Button
+                      key={item.id}
+                      variant={tone === item.id ? "default" : "outline"}
+                      className="h-auto flex-col gap-2 p-4"
+                      onClick={() => setTone(item.id)}
+                    >
+                      <Icon className="h-5 w-5" />
+                      <span className="text-xs">{item.label}</span>
+                    </Button>
+                  );
+                })}
               </div>
             </div>
 
@@ -99,11 +152,11 @@ export const Generator = () => {
               disabled={loading}
             >
               {loading ? (
-                <Sparkles className="mr-2 h-4 w-4 animate-spin" />
+                <span className="animate-spin mr-2">⚡</span>
               ) : (
-                <Sparkles className="mr-2 h-4 w-4" />
+                <span className="mr-2">⚡</span>
               )}
-              Generate Content
+              Generate Content Ideas
             </Button>
 
             {(generatedContent.idea || generatedContent.caption || generatedContent.hashtags) && (
