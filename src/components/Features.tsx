@@ -1,5 +1,5 @@
 import { Card } from "@/components/ui/card";
-import { Hash, MessageSquare, Sparkles, Zap } from "lucide-react";
+import { Sparkles, MessageSquare, Hash, Zap } from "lucide-react";
 
 const features = [
   {
