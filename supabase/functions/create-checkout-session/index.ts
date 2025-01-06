@@ -19,16 +19,19 @@ serve(async (req) => {
   )
 
   try {
+    console.log('Starting checkout session creation...')
+    
     // Get the session or user object
     const authHeader = req.headers.get('Authorization')!
     const token = authHeader.replace('Bearer ', '')
-    const { data } = await supabaseClient.auth.getUser(token)
-    const user = data.user
-    const email = user?.email
-
-    if (!email) {
-      throw new Error('No email found')
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token)
+    
+    if (userError || !user?.email) {
+      console.error('User authentication error:', userError)
+      throw new Error('Authentication required')
     }
+
+    console.log('User authenticated:', user.email)
 
     const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') || '', {
       apiVersion: '2023-10-16',
@@ -37,34 +40,49 @@ serve(async (req) => {
     // Get the price ID from the request
     const { priceId } = await req.json()
     if (!priceId) {
+      console.error('No price ID provided')
       throw new Error('No price ID provided')
     }
 
-    const customers = await stripe.customers.list({
-      email: email,
-      limit: 1
-    })
+    console.log('Creating checkout session with price ID:', priceId)
 
-    let customer_id = undefined
-    if (customers.data.length > 0) {
-      customer_id = customers.data[0].id
-      // check if already subscribed to this price
-      const subscriptions = await stripe.subscriptions.list({
-        customer: customers.data[0].id,
-        status: 'active',
-        price: priceId,
-        limit: 1
+    // Check if user already has a Stripe customer ID
+    const { data: customers, error: stripeError } = await supabaseClient
+      .from('stripe_subscriptions')
+      .select('stripe_customer_id')
+      .eq('user_id', user.id)
+      .single()
+
+    let customerId = customers?.stripe_customer_id
+
+    if (!customerId) {
+      console.log('Creating new Stripe customer...')
+      const customer = await stripe.customers.create({
+        email: user.email,
+        metadata: {
+          supabase_user_id: user.id,
+        },
       })
+      customerId = customer.id
 
-      if (subscriptions.data.length > 0) {
-        throw new Error("You are already subscribed to this plan")
+      // Store the customer ID in our database
+      const { error: insertError } = await supabaseClient
+        .from('stripe_subscriptions')
+        .insert({
+          user_id: user.id,
+          stripe_customer_id: customerId,
+          is_active: false,
+        })
+
+      if (insertError) {
+        console.error('Error storing customer ID:', insertError)
+        throw new Error('Failed to store customer information')
       }
     }
 
     console.log('Creating payment session...')
     const session = await stripe.checkout.sessions.create({
-      customer: customer_id,
-      customer_email: customer_id ? undefined : email,
+      customer: customerId,
       line_items: [
         {
           price: priceId,
@@ -73,7 +91,7 @@ serve(async (req) => {
       ],
       mode: 'subscription',
       success_url: `${req.headers.get('origin')}/`,
-      cancel_url: `${req.headers.get('origin')}/`,
+      cancel_url: `${req.headers.get('origin')}/pricing`,
     })
 
     console.log('Payment session created:', session.id)
