@@ -1,4 +1,5 @@
-import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import "https://deno.land/x/xhr@0.1.0/mod.ts";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import Stripe from 'https://esm.sh/stripe@14.21.0';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
 
@@ -21,11 +22,6 @@ serve(async (req) => {
           autoRefreshToken: false,
           persistSession: false,
         },
-        global: {
-          headers: {
-            Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
-          },
-        },
       }
     );
 
@@ -40,6 +36,33 @@ serve(async (req) => {
     }
 
     console.log('User authenticated:', user.email);
+
+    // Verify user profile exists
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (profileError) {
+      console.error('Error checking profile:', profileError);
+      throw new Error('Failed to verify user profile');
+    }
+
+    if (!profile) {
+      console.log('Creating profile for user:', user.id);
+      const { error: insertError } = await supabaseAdmin
+        .from('profiles')
+        .insert({
+          id: user.id,
+          email: user.email,
+        });
+
+      if (insertError) {
+        console.error('Error creating profile:', insertError);
+        throw new Error('Failed to create user profile');
+      }
+    }
 
     const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') || '', {
       apiVersion: '2023-10-16',
@@ -56,10 +79,8 @@ serve(async (req) => {
     const origin = req.headers.get('origin') || 'http://localhost:5173';
     console.log('Origin URL:', origin);
 
-    console.log('Creating checkout session with price ID:', priceId);
-
     try {
-      // First, check if a stripe_subscriptions record already exists
+      // Check for existing subscription
       const { data: existingSubscription, error: subscriptionError } = await supabaseAdmin
         .from('stripe_subscriptions')
         .select('stripe_customer_id')
@@ -75,7 +96,6 @@ serve(async (req) => {
 
       if (!customerId) {
         console.log('Creating new Stripe customer...');
-        // Create a new customer in Stripe
         const customer = await stripe.customers.create({
           email: user.email,
           metadata: {
@@ -96,7 +116,7 @@ serve(async (req) => {
 
         if (insertError) {
           console.error('Error storing customer ID:', insertError);
-          throw new Error(`Failed to store customer information: ${insertError.message}`);
+          throw new Error('Failed to store customer information');
         }
       }
 
