@@ -1,1 +1,4 @@
 project_id = "riczjmholwwcfotopmkq"
+
+[functions.create-checkout-session]
+verify_jwt = true
