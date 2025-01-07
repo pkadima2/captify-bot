@@ -17,20 +17,33 @@ const supabaseAdmin = createClient(
   }
 );
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
 serve(async (req) => {
-  const signature = req.headers.get('stripe-signature');
-  
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
   try {
+    const signature = req.headers.get('stripe-signature');
+    
     if (!signature) {
-      throw new Error('No signature found');
+      console.error('No stripe signature found');
+      throw new Error('No stripe signature found');
     }
 
     const body = await req.text();
     const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SIGNING_SECRET');
+    
     if (!webhookSecret) {
+      console.error('Webhook secret not configured');
       throw new Error('Webhook secret not configured');
     }
 
+    console.log('Constructing Stripe event...');
     const event = stripe.webhooks.constructEvent(
       body,
       signature,
@@ -40,18 +53,21 @@ serve(async (req) => {
     console.log('Processing webhook event:', event.type);
 
     switch (event.type) {
-      case 'customer.subscription.created':
-      case 'customer.subscription.updated': {
-        const subscription = event.data.object as Stripe.Subscription;
-        const customerId = subscription.customer as string;
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session;
+        console.log('Checkout session completed:', session.id);
         
-        // Get customer email from Stripe
-        const customer = await stripe.customers.retrieve(customerId);
+        if (!session.customer || !session.subscription) {
+          throw new Error('No customer or subscription found in session');
+        }
+
+        // Get customer details to find email
+        const customer = await stripe.customers.retrieve(session.customer as string);
+        console.log('Customer retrieved:', customer.id);
+
         if (!customer.email) {
           throw new Error('No customer email found');
         }
-
-        console.log('Updating subscription for customer:', customer.email);
 
         // Get user_id from profiles table using email
         const { data: profileData, error: profileError } = await supabaseAdmin
@@ -61,25 +77,27 @@ serve(async (req) => {
           .single();
 
         if (profileError || !profileData) {
+          console.error('Profile error:', profileError);
           throw new Error(`No profile found for email: ${customer.email}`);
         }
 
-        const userId = profileData.id;
+        console.log('Updating subscription for user:', profileData.id);
 
         // Update stripe_subscriptions table
         const { error: subscriptionError } = await supabaseAdmin
           .from('stripe_subscriptions')
           .upsert({
-            user_id: userId,
-            stripe_customer_id: customerId,
-            stripe_subscription_id: subscription.id,
-            is_active: subscription.status === 'active',
+            user_id: profileData.id,
+            stripe_customer_id: session.customer as string,
+            stripe_subscription_id: session.subscription as string,
+            is_active: true,
             updated_at: new Date().toISOString()
           }, {
             onConflict: 'user_id'
           });
 
         if (subscriptionError) {
+          console.error('Subscription update error:', subscriptionError);
           throw new Error(`Error updating subscription: ${subscriptionError.message}`);
         }
 
@@ -87,30 +105,29 @@ serve(async (req) => {
         const { error: profileUpdateError } = await supabaseAdmin
           .from('profiles')
           .update({ 
-            is_premium: subscription.status === 'active',
+            is_premium: true,
             updated_at: new Date().toISOString()
           })
-          .eq('id', userId);
+          .eq('id', profileData.id);
 
         if (profileUpdateError) {
+          console.error('Profile update error:', profileUpdateError);
           throw new Error(`Error updating profile: ${profileUpdateError.message}`);
         }
 
-        console.log('Successfully updated subscription and profile for:', customer.email);
+        console.log('Successfully processed checkout session');
         break;
       }
 
       case 'customer.subscription.deleted': {
         const subscription = event.data.object as Stripe.Subscription;
-        const customerId = subscription.customer as string;
+        console.log('Subscription deleted:', subscription.id);
         
-        // Get customer email from Stripe
-        const customer = await stripe.customers.retrieve(customerId);
+        // Get customer details
+        const customer = await stripe.customers.retrieve(subscription.customer as string);
         if (!customer.email) {
           throw new Error('No customer email found');
         }
-
-        console.log('Processing subscription deletion for:', customer.email);
 
         // Get user_id from profiles table using email
         const { data: profileData, error: profileError } = await supabaseAdmin
@@ -123,41 +140,39 @@ serve(async (req) => {
           throw new Error(`No profile found for email: ${customer.email}`);
         }
 
-        const userId = profileData.id;
-
-        // Update stripe_subscriptions table
+        // Update subscription status
         const { error: subscriptionError } = await supabaseAdmin
           .from('stripe_subscriptions')
           .update({
             is_active: false,
             updated_at: new Date().toISOString()
           })
-          .eq('user_id', userId);
+          .eq('user_id', profileData.id);
 
         if (subscriptionError) {
           throw new Error(`Error updating subscription: ${subscriptionError.message}`);
         }
 
-        // Update profiles table
+        // Update premium status
         const { error: profileUpdateError } = await supabaseAdmin
           .from('profiles')
           .update({ 
             is_premium: false,
             updated_at: new Date().toISOString()
           })
-          .eq('id', userId);
+          .eq('id', profileData.id);
 
         if (profileUpdateError) {
           throw new Error(`Error updating profile: ${profileUpdateError.message}`);
         }
 
-        console.log('Successfully processed subscription deletion for:', customer.email);
+        console.log('Successfully processed subscription deletion');
         break;
       }
     }
 
     return new Response(JSON.stringify({ received: true }), {
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });
 
@@ -166,7 +181,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ error: error.message }),
       {
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 400,
       }
     );
