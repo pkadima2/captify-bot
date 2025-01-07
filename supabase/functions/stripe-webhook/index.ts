@@ -61,6 +61,15 @@ serve(async (req) => {
           throw new Error('No customer or subscription found in session');
         }
 
+        // Fetch the subscription details
+        const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
+        console.log('Subscription retrieved:', subscription.id);
+
+        // Get the payment method details
+        const paymentMethod = subscription.default_payment_method
+          ? await stripe.paymentMethods.retrieve(subscription.default_payment_method as string)
+          : null;
+
         // Get customer details to find email
         const customer = await stripe.customers.retrieve(session.customer as string);
         console.log('Customer retrieved:', customer.id);
@@ -83,13 +92,24 @@ serve(async (req) => {
 
         console.log('Updating subscription for user:', profileData.id);
 
-        // Update stripe_subscriptions table
+        // Get price details
+        const price = subscription.items.data[0].price;
+
+        // Update stripe_subscriptions table with all details
         const { error: subscriptionError } = await supabaseAdmin
           .from('stripe_subscriptions')
           .upsert({
             user_id: profileData.id,
             stripe_customer_id: session.customer as string,
-            stripe_subscription_id: session.subscription as string,
+            stripe_subscription_id: subscription.id,
+            subscription_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
+            subscription_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+            price_id: price.id,
+            price_amount: price.unit_amount ? price.unit_amount / 100 : null,
+            currency: price.currency,
+            interval: price.recurring?.interval || null,
+            payment_method: paymentMethod?.type || null,
+            status: subscription.status,
             is_active: true,
             updated_at: new Date().toISOString()
           }, {
@@ -145,6 +165,7 @@ serve(async (req) => {
           .from('stripe_subscriptions')
           .update({
             is_active: false,
+            status: subscription.status,
             updated_at: new Date().toISOString()
           })
           .eq('user_id', profileData.id);

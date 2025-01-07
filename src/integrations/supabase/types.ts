@@ -153,28 +153,52 @@ export type Database = {
       stripe_subscriptions: {
         Row: {
           created_at: string
+          currency: string | null
           id: string
+          interval: string | null
           is_active: boolean | null
+          payment_method: string | null
+          price_amount: number | null
+          price_id: string | null
+          status: string | null
           stripe_customer_id: string
           stripe_subscription_id: string
+          subscription_period_end: string | null
+          subscription_period_start: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
           created_at?: string
+          currency?: string | null
           id?: string
+          interval?: string | null
           is_active?: boolean | null
+          payment_method?: string | null
+          price_amount?: number | null
+          price_id?: string | null
+          status?: string | null
           stripe_customer_id: string
           stripe_subscription_id: string
+          subscription_period_end?: string | null
+          subscription_period_start?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
           created_at?: string
+          currency?: string | null
           id?: string
+          interval?: string | null
           is_active?: boolean | null
+          payment_method?: string | null
+          price_amount?: number | null
+          price_id?: string | null
+          status?: string | null
           stripe_customer_id?: string
           stripe_subscription_id?: string
+          subscription_period_end?: string | null
+          subscription_period_start?: string | null
           updated_at?: string
           user_id?: string
         }
