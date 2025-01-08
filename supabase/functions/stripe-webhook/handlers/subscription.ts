@@ -1,6 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
 import { Stripe } from 'https://esm.sh/stripe@14.21.0';
-import { formatSubscriptionData, isSubscriptionActive } from '../utils/subscription.ts';
 
 export const handleSubscriptionUpdate = async (
   supabaseAdmin: any,
@@ -8,69 +7,111 @@ export const handleSubscriptionUpdate = async (
   customer: Stripe.Customer,
   profileId: string
 ) => {
-  console.log('Processing subscription update for profile:', profileId);
-  
-  const subscriptionData = formatSubscriptionData(subscription, customer, profileId);
-  
-  const { error: subscriptionError } = await supabaseAdmin
-    .from('stripe_subscriptions')
-    .upsert(subscriptionData, {
-      onConflict: 'user_id'
-    });
+  try {
+    console.log('Starting subscription update process for profile:', profileId);
+    console.log('Subscription object:', JSON.stringify(subscription, null, 2));
+    
+    // Format the subscription data
+    const subscriptionData = formatSubscriptionData(subscription, customer, profileId);
+    console.log('Formatted subscription data:', JSON.stringify(subscriptionData, null, 2));
 
-  if (subscriptionError) {
-    console.error('Subscription update error:', subscriptionError);
-    throw new Error(`Error updating subscription: ${subscriptionError.message}`);
+    // Verify the subscription data matches your table schema
+    const { data: existingSubscription, error: fetchError } = await supabaseAdmin
+      .from('stripe_subscriptions')
+      .select('*')
+      .eq('user_id', profileId)
+      .single();
+
+    if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 is "no rows returned"
+      console.error('Error fetching existing subscription:', fetchError);
+      throw fetchError;
+    }
+
+    console.log('Existing subscription:', existingSubscription);
+
+    // Perform the upsert with conflict handling
+    const { data: upsertData, error: subscriptionError } = await supabaseAdmin
+      .from('stripe_subscriptions')
+      .upsert(subscriptionData, {
+        onConflict: 'user_id',
+        returning: 'minimal' // Add this to reduce response size
+      });
+
+    if (subscriptionError) {
+      console.error('Subscription upsert error:', subscriptionError);
+      console.error('Failed data:', subscriptionData);
+      throw new Error(`Error updating subscription: ${subscriptionError.message}`);
+    }
+
+    console.log('Subscription upsert successful');
+
+    // Update profile premium status
+    const { error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .update({ 
+        is_premium: isSubscriptionActive(subscription.status),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', profileId);
+
+    if (profileError) {
+      console.error('Profile update error:', profileError);
+      throw new Error(`Error updating profile: ${profileError.message}`);
+    }
+
+    console.log('Successfully completed subscription update process');
+    return true;
+
+  } catch (error) {
+    console.error('Subscription update process failed:', error);
+    throw error;
   }
-
-  const { error: profileError } = await supabaseAdmin
-    .from('profiles')
-    .update({ 
-      is_premium: isSubscriptionActive(subscription.status),
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', profileId);
-
-  if (profileError) {
-    console.error('Profile update error:', profileError);
-    throw new Error(`Error updating profile: ${profileError.message}`);
-  }
-
-  console.log('Successfully updated subscription and profile for user:', profileId);
 };
 
-export const handleSubscriptionDeletion = async (
-  supabaseAdmin: any,
+export const formatSubscriptionData = (
+  subscription: Stripe.Subscription,
+  customer: Stripe.Customer,
   profileId: string
 ) => {
-  console.log('Processing subscription deletion for profile:', profileId);
+  try {
+    const subscriptionItem = subscription.items.data[0];
+    if (!subscriptionItem) {
+      throw new Error('No subscription item found');
+    }
 
-  const { error: subscriptionError } = await supabaseAdmin
-    .from('stripe_subscriptions')
-    .update({
-      is_active: false,
-      status: 'canceled',
+    const price = subscriptionItem.price;
+    if (!price) {
+      throw new Error('No price information found');
+    }
+
+    const paymentMethod = subscription.default_payment_method as Stripe.PaymentMethod;
+
+    return {
+      user_id: profileId,
+      stripe_customer_id: customer.id,
+      stripe_subscription_id: subscription.id,
+      subscription_item_id: subscriptionItem.id,
+      price_id: price.id,
+      price_amount: price.unit_amount ? price.unit_amount / 100 : null,
+      currency: price.currency,
+      interval: price.recurring?.interval || null,
+      interval_count: price.recurring?.interval_count || null,
+      subscription_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
+      subscription_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+      cancel_at: subscription.cancel_at ? new Date(subscription.cancel_at * 1000).toISOString() : null,
+      canceled_at: subscription.canceled_at ? new Date(subscription.canceled_at * 1000).toISOString() : null,
+      payment_method: paymentMethod?.type || null,
+      status: subscription.status,
+      is_active: isSubscriptionActive(subscription.status),
+      metadata: subscription.metadata || {},
       updated_at: new Date().toISOString()
-    })
-    .eq('user_id', profileId);
-
-  if (subscriptionError) {
-    console.error('Subscription deletion error:', subscriptionError);
-    throw new Error(`Error updating subscription: ${subscriptionError.message}`);
+    };
+  } catch (error) {
+    console.error('Error formatting subscription data:', error);
+    throw error;
   }
+};
 
-  const { error: profileError } = await supabaseAdmin
-    .from('profiles')
-    .update({ 
-      is_premium: false,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', profileId);
-
-  if (profileError) {
-    console.error('Profile update error:', profileError);
-    throw new Error(`Error updating profile: ${profileError.message}`);
-  }
-
-  console.log('Successfully processed subscription deletion for user:', profileId);
+export const isSubscriptionActive = (status: string): boolean => {
+  return ['active', 'trialing'].includes(status);
 };
