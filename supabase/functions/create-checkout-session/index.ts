@@ -138,20 +138,6 @@ serve(async (req) => {
         },
       });
 
-      // Update the subscription record with the session ID
-      const { error: updateError } = await supabaseAdmin
-        .from('stripe_subscriptions')
-        .update({
-          stripe_subscription_id: session.subscription?.toString() || '',
-          is_active: true,
-        })
-        .eq('user_id', user.id);
-
-      if (updateError) {
-        console.error('Error updating subscription record:', updateError);
-        // Don't throw here, as the checkout session is already created
-      }
-
       console.log('Checkout session created successfully:', session.id);
       return new Response(
         JSON.stringify({ url: session.url }),
