@@ -8,6 +8,63 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Helper function to format subscription data
+const formatSubscriptionData = (
+  subscription: Stripe.Subscription,
+  customer: Stripe.Customer,
+  profileId: string
+) => {
+  const subscriptionItem = subscription.items.data[0];
+  const price = subscriptionItem.price;
+  const paymentMethod = subscription.default_payment_method as Stripe.PaymentMethod;
+
+  return {
+    user_id: profileId,
+    stripe_customer_id: customer.id,
+    stripe_subscription_id: subscription.id,
+    subscription_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
+    subscription_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+    price_id: price.id,
+    price_amount: price.unit_amount ? price.unit_amount / 100 : null,
+    currency: price.currency,
+    interval: price.recurring?.interval || null,
+    payment_method: paymentMethod?.type || null,
+    status: subscription.status,
+    is_active: true,
+    updated_at: new Date().toISOString()
+  };
+};
+
+// Helper function to handle subscription updates
+const handleSubscriptionUpdate = async (
+  supabaseAdmin: any,
+  subscriptionData: any
+) => {
+  const { error: subscriptionError } = await supabaseAdmin
+    .from('stripe_subscriptions')
+    .upsert(subscriptionData, {
+      onConflict: 'user_id'
+    });
+
+  if (subscriptionError) {
+    console.error('Subscription update error:', subscriptionError);
+    throw new Error(`Error updating subscription: ${subscriptionError.message}`);
+  }
+
+  const { error: profileError } = await supabaseAdmin
+    .from('profiles')
+    .update({ 
+      is_premium: true,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', subscriptionData.user_id);
+
+  if (profileError) {
+    console.error('Profile update error:', profileError);
+    throw new Error(`Error updating profile: ${profileError.message}`);
+  }
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -62,7 +119,7 @@ serve(async (req) => {
           throw new Error('No customer or subscription found in session');
         }
 
-        // Fetch the complete subscription details
+        // Fetch the complete subscription details with expanded relations
         const subscription = await stripe.subscriptions.retrieve(session.subscription as string, {
           expand: ['default_payment_method', 'items.data.price']
         });
@@ -90,52 +147,9 @@ serve(async (req) => {
 
         console.log('Updating subscription for user:', profileData.id);
 
-        // Get the first subscription item's price (assuming one price per subscription)
-        const subscriptionItem = subscription.items.data[0];
-        const price = subscriptionItem.price;
-
-        // Get payment method details
-        const paymentMethod = subscription.default_payment_method as Stripe.PaymentMethod;
-
-        // Update stripe_subscriptions table with complete details
-        const { error: subscriptionError } = await supabaseAdmin
-          .from('stripe_subscriptions')
-          .upsert({
-            user_id: profileData.id,
-            stripe_customer_id: customer.id,
-            stripe_subscription_id: subscription.id,
-            subscription_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
-            subscription_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
-            price_id: price.id,
-            price_amount: price.unit_amount ? price.unit_amount / 100 : null,
-            currency: price.currency,
-            interval: price.recurring?.interval || null,
-            payment_method: paymentMethod?.type || null,
-            status: subscription.status,
-            is_active: true,
-            updated_at: new Date().toISOString()
-          }, {
-            onConflict: 'user_id'
-          });
-
-        if (subscriptionError) {
-          console.error('Subscription update error:', subscriptionError);
-          throw new Error(`Error updating subscription: ${subscriptionError.message}`);
-        }
-
-        // Update profiles table
-        const { error: profileUpdateError } = await supabaseAdmin
-          .from('profiles')
-          .update({ 
-            is_premium: true,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', profileData.id);
-
-        if (profileUpdateError) {
-          console.error('Profile update error:', profileUpdateError);
-          throw new Error(`Error updating profile: ${profileUpdateError.message}`);
-        }
+        // Format and update subscription data
+        const subscriptionData = formatSubscriptionData(subscription, customer as Stripe.Customer, profileData.id);
+        await handleSubscriptionUpdate(supabaseAdmin, subscriptionData);
 
         console.log('Successfully processed checkout session');
         break;
