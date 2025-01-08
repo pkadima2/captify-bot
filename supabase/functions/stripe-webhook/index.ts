@@ -9,36 +9,51 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
+  console.log('Webhook function called with method:', req.method);
+  
   if (req.method === 'OPTIONS') {
+    console.log('Handling CORS preflight request');
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    console.log('Processing webhook request...');
+    
+    // Log all headers for debugging
+    console.log('Request headers:', Object.fromEntries(req.headers.entries()));
+    
     const signature = req.headers.get('stripe-signature');
     if (!signature) {
-      console.error('No stripe signature found');
+      console.error('No stripe signature found in headers');
       throw new Error('No stripe signature found');
     }
 
-    const body = await req.text();
     const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SIGNING_SECRET');
     if (!webhookSecret) {
-      console.error('Webhook secret not configured');
+      console.error('Webhook secret not found in environment variables');
       throw new Error('Webhook secret not configured');
     }
 
+    const body = await req.text();
+    console.log('Request body length:', body.length);
+    
     const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') || '', {
       apiVersion: '2023-10-16',
     });
 
     console.log('Constructing Stripe event...');
-    const event = stripe.webhooks.constructEvent(
-      body,
-      signature,
-      webhookSecret
-    );
-
-    console.log('Processing webhook event:', event.type);
+    let event;
+    try {
+      event = stripe.webhooks.constructEvent(
+        body,
+        signature,
+        webhookSecret
+      );
+      console.log('Successfully constructed Stripe event:', event.type);
+    } catch (err) {
+      console.error('Error constructing Stripe event:', err);
+      throw err;
+    }
 
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -50,6 +65,8 @@ serve(async (req) => {
         }
       }
     );
+
+    console.log('Processing webhook event:', event.type);
 
     switch (event.type) {
       case 'checkout.session.completed':
@@ -63,8 +80,10 @@ serve(async (req) => {
 
         if (event.type === 'checkout.session.completed') {
           const session = event.data.object as Stripe.Checkout.Session;
+          console.log('Checkout session data:', session);
           
           if (!session?.customer || !session?.subscription) {
+            console.error('Missing customer or subscription ID in session');
             throw new Error('Missing customer or subscription ID in session');
           }
 
@@ -84,11 +103,13 @@ serve(async (req) => {
         console.log('Customer retrieved:', customer.id);
 
         if (!customer || customer.deleted) {
+          console.error('Customer not found or deleted');
           throw new Error('Customer not found or deleted');
         }
 
         const userId = (customer as Stripe.Customer).metadata.supabase_user_id;
         if (!userId) {
+          console.error('No Supabase user ID found in customer metadata');
           throw new Error('No Supabase user ID found in customer metadata');
         }
 
@@ -158,6 +179,14 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Webhook processing error:', error);
+    // Log the full error object for debugging
+    console.error('Full error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      cause: error.cause
+    });
+    
     return new Response(
       JSON.stringify({ error: error.message }),
       {
