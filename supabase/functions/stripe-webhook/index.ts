@@ -13,17 +13,6 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const supabaseAdmin = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      }
-    }
-  );
-
   try {
     const signature = req.headers.get('stripe-signature');
     if (!signature) {
@@ -51,8 +40,20 @@ serve(async (req) => {
 
     console.log('Processing webhook event:', event.type);
 
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        }
+      }
+    );
+
     switch (event.type) {
       case 'checkout.session.completed':
+      case 'customer.subscription.created':
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted': {
         console.log(`Processing ${event.type} event`);
@@ -86,42 +87,38 @@ serve(async (req) => {
           throw new Error('Customer not found or deleted');
         }
 
-        const { data: profileData, error: profileError } = await supabaseAdmin
-          .from('profiles')
-          .select('id')
-          .eq('email', (customer as Stripe.Customer).email)
-          .maybeSingle();
-
-        if (profileError) {
-          console.error('Error fetching profile:', profileError);
-          throw new Error(`Error fetching profile: ${profileError.message}`);
+        const userId = (customer as Stripe.Customer).metadata.supabase_user_id;
+        if (!userId) {
+          throw new Error('No Supabase user ID found in customer metadata');
         }
 
-        if (!profileData) {
-          console.error('No profile found for email:', (customer as Stripe.Customer).email);
-          throw new Error(`No profile found for email: ${(customer as Stripe.Customer).email}`);
-        }
+        const subscriptionData = {
+          user_id: userId,
+          stripe_customer_id: subscription.customer,
+          stripe_subscription_id: subscription.id,
+          subscription_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
+          subscription_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+          price_id: subscription.items.data[0]?.price?.id,
+          price_amount: subscription.items.data[0]?.price?.unit_amount,
+          currency: subscription.currency,
+          interval: subscription.items.data[0]?.price?.recurring?.interval,
+          payment_method: (subscription.default_payment_method as Stripe.PaymentMethod)?.type || null,
+          status: subscription.status,
+          subscription_item_id: subscription.items.data[0]?.id,
+          interval_count: subscription.items.data[0]?.price?.recurring?.interval_count,
+          billing_cycle_anchor: subscription.billing_cycle_anchor ? new Date(subscription.billing_cycle_anchor * 1000).toISOString() : null,
+          cancel_at: subscription.cancel_at ? new Date(subscription.cancel_at * 1000).toISOString() : null,
+          canceled_at: subscription.canceled_at ? new Date(subscription.canceled_at * 1000).toISOString() : null,
+          is_active: ['active', 'trialing'].includes(subscription.status),
+          metadata: subscription.metadata || {},
+          updated_at: new Date().toISOString()
+        };
 
-        // Update stripe_subscriptions table
+        console.log('Upserting subscription data:', subscriptionData);
+
         const { error: subscriptionError } = await supabaseAdmin
           .from('stripe_subscriptions')
-          .upsert({
-            user_id: profileData.id,
-            stripe_customer_id: customer.id,
-            stripe_subscription_id: subscription.id,
-            subscription_item_id: subscription.items.data[0]?.id,
-            price_id: subscription.items.data[0]?.price?.id,
-            price_amount: subscription.items.data[0]?.price?.unit_amount,
-            currency: subscription.currency,
-            interval: subscription.items.data[0]?.price?.recurring?.interval,
-            interval_count: subscription.items.data[0]?.price?.recurring?.interval_count,
-            subscription_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
-            subscription_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
-            status: subscription.status,
-            is_active: ['active', 'trialing'].includes(subscription.status),
-            payment_method: (subscription.default_payment_method as Stripe.PaymentMethod)?.type || null,
-            updated_at: new Date().toISOString()
-          }, {
+          .upsert(subscriptionData, {
             onConflict: 'user_id'
           });
 
@@ -130,25 +127,11 @@ serve(async (req) => {
           throw new Error(`Failed to update subscription: ${subscriptionError.message}`);
         }
 
-        console.log('Successfully updated stripe_subscriptions table');
-
-        // Update profiles table
-        const { error: profileUpdateError } = await supabaseAdmin
-          .from('profiles')
-          .update({ 
-            is_premium: ['active', 'trialing'].includes(subscription.status),
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', profileData.id);
-
-        if (profileUpdateError) {
-          console.error('Error updating profile:', profileUpdateError);
-          throw new Error(`Failed to update profile: ${profileUpdateError.message}`);
-        }
-
-        console.log('Successfully updated profiles table');
+        console.log('Successfully updated subscription data');
         break;
       }
+      default:
+        console.log(`Unhandled event type: ${event.type}`);
     }
 
     return new Response(
