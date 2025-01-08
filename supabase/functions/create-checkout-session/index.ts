@@ -136,6 +136,9 @@ serve(async (req) => {
             supabase_user_id: user.id,
           },
         },
+        metadata: {
+          supabase_user_id: user.id,
+        },
       });
 
       console.log('Checkout session created successfully:', session.id);

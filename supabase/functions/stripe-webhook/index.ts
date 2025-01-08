@@ -102,10 +102,10 @@ serve(async (req) => {
           price_amount: subscription.items.data[0]?.price?.unit_amount,
           currency: subscription.currency,
           interval: subscription.items.data[0]?.price?.recurring?.interval,
+          interval_count: subscription.items.data[0]?.price?.recurring?.interval_count,
           payment_method: (subscription.default_payment_method as Stripe.PaymentMethod)?.type || null,
           status: subscription.status,
           subscription_item_id: subscription.items.data[0]?.id,
-          interval_count: subscription.items.data[0]?.price?.recurring?.interval_count,
           billing_cycle_anchor: subscription.billing_cycle_anchor ? new Date(subscription.billing_cycle_anchor * 1000).toISOString() : null,
           cancel_at: subscription.cancel_at ? new Date(subscription.cancel_at * 1000).toISOString() : null,
           canceled_at: subscription.canceled_at ? new Date(subscription.canceled_at * 1000).toISOString() : null,
@@ -127,7 +127,21 @@ serve(async (req) => {
           throw new Error(`Failed to update subscription: ${subscriptionError.message}`);
         }
 
-        console.log('Successfully updated subscription data');
+        // Update user's premium status
+        const { error: profileError } = await supabaseAdmin
+          .from('profiles')
+          .update({ 
+            is_premium: ['active', 'trialing'].includes(subscription.status),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', userId);
+
+        if (profileError) {
+          console.error('Error updating profile:', profileError);
+          throw new Error(`Failed to update profile: ${profileError.message}`);
+        }
+
+        console.log('Successfully updated subscription and profile data');
         break;
       }
       default:
