@@ -2,8 +2,12 @@ import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import Stripe from 'https://esm.sh/stripe@14.21.0';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
-import { corsHeaders } from './utils/cors.ts';
 import { handleSubscriptionUpdate } from './handlers/subscription.ts';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -49,23 +53,34 @@ serve(async (req) => {
     console.log('Processing webhook event:', event.type);
 
     switch (event.type) {
-      case 'checkout.session.completed': {
-        console.log('Checkout session completed event received');
-        const session = event.data.object as Stripe.Checkout.Session;
+      case 'checkout.session.completed':
+      case 'customer.subscription.updated':
+      case 'customer.subscription.deleted': {
+        console.log(`Processing ${event.type} event`);
         
-        if (!session?.customer || !session?.subscription) {
-          throw new Error('Missing customer or subscription ID in session');
+        let subscription;
+        let customer;
+
+        if (event.type === 'checkout.session.completed') {
+          const session = event.data.object as Stripe.Checkout.Session;
+          
+          if (!session?.customer || !session?.subscription) {
+            throw new Error('Missing customer or subscription ID in session');
+          }
+
+          subscription = await stripe.subscriptions.retrieve(
+            session.subscription as string,
+            {
+              expand: ['default_payment_method', 'items.data.price']
+            }
+          );
+          customer = await stripe.customers.retrieve(session.customer as string);
+        } else {
+          subscription = event.data.object as Stripe.Subscription;
+          customer = await stripe.customers.retrieve(subscription.customer as string);
         }
 
-        const subscription = await stripe.subscriptions.retrieve(
-          session.subscription as string,
-          {
-            expand: ['default_payment_method', 'items.data.price']
-          }
-        );
         console.log('Subscription retrieved:', subscription.id);
-
-        const customer = await stripe.customers.retrieve(session.customer as string);
         console.log('Customer retrieved:', customer.id);
 
         if (!customer || customer.deleted) {
@@ -75,11 +90,17 @@ serve(async (req) => {
         const { data: profileData, error: profileError } = await supabaseAdmin
           .from('profiles')
           .select('id')
-          .eq('email', customer.email)
+          .eq('email', (customer as Stripe.Customer).email)
           .maybeSingle();
 
-        if (profileError || !profileData) {
-          throw new Error(`No profile found for email: ${customer.email}`);
+        if (profileError) {
+          console.error('Error fetching profile:', profileError);
+          throw new Error(`Error fetching profile: ${profileError.message}`);
+        }
+
+        if (!profileData) {
+          console.error('No profile found for email:', (customer as Stripe.Customer).email);
+          throw new Error(`No profile found for email: ${(customer as Stripe.Customer).email}`);
         }
 
         await handleSubscriptionUpdate(
@@ -88,41 +109,6 @@ serve(async (req) => {
           customer as Stripe.Customer,
           profileData.id
         );
-
-        break;
-      }
-
-      case 'customer.subscription.deleted': {
-        const subscription = event.data.object as Stripe.Subscription;
-        console.log('Subscription deleted:', subscription.id);
-        
-        const customer = await stripe.customers.retrieve(subscription.customer as string);
-        if (!customer || customer.deleted || !customer.email) {
-          throw new Error('No customer email found');
-        }
-
-        const { data: profileData, error: profileError } = await supabaseAdmin
-          .from('profiles')
-          .select('id')
-          .eq('email', customer.email)
-          .maybeSingle();
-
-        if (profileError || !profileData) {
-          throw new Error(`No profile found for email: ${customer.email}`);
-        }
-
-        // Update profile and subscription status
-        const { error: updateError } = await supabaseAdmin
-          .from('profiles')
-          .update({ 
-            is_premium: false,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', profileData.id);
-
-        if (updateError) {
-          throw new Error(`Failed to update profile: ${updateError.message}`);
-        }
 
         break;
       }
