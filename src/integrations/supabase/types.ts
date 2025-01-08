@@ -152,51 +152,72 @@ export type Database = {
       }
       stripe_subscriptions: {
         Row: {
+          billing_cycle_anchor: string | null
+          cancel_at: string | null
+          canceled_at: string | null
           created_at: string
           currency: string | null
           id: string
           interval: string | null
+          interval_count: number | null
           is_active: boolean | null
+          last_payment_error: string | null
+          metadata: Json | null
           payment_method: string | null
           price_amount: number | null
           price_id: string | null
           status: string | null
           stripe_customer_id: string
           stripe_subscription_id: string
+          subscription_item_id: string | null
           subscription_period_end: string | null
           subscription_period_start: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          billing_cycle_anchor?: string | null
+          cancel_at?: string | null
+          canceled_at?: string | null
           created_at?: string
           currency?: string | null
           id?: string
           interval?: string | null
+          interval_count?: number | null
           is_active?: boolean | null
+          last_payment_error?: string | null
+          metadata?: Json | null
           payment_method?: string | null
           price_amount?: number | null
           price_id?: string | null
           status?: string | null
           stripe_customer_id: string
           stripe_subscription_id: string
+          subscription_item_id?: string | null
           subscription_period_end?: string | null
           subscription_period_start?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          billing_cycle_anchor?: string | null
+          cancel_at?: string | null
+          canceled_at?: string | null
           created_at?: string
           currency?: string | null
           id?: string
           interval?: string | null
+          interval_count?: number | null
           is_active?: boolean | null
+          last_payment_error?: string | null
+          metadata?: Json | null
           payment_method?: string | null
           price_amount?: number | null
           price_id?: string | null
           status?: string | null
           stripe_customer_id?: string
           stripe_subscription_id?: string
+          subscription_item_id?: string | null
           subscription_period_end?: string | null
           subscription_period_start?: string | null
           updated_at?: string
