@@ -1,21 +1,7 @@
-import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import "https://deno.land/x/xhr@0.1.0/mod.ts";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import Stripe from 'https://esm.sh/stripe@14.21.0';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
-
-const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') || '', {
-  apiVersion: '2023-10-16',
-});
-
-const supabaseAdmin = createClient(
-  Deno.env.get('SUPABASE_URL') ?? '',
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    }
-  }
-);
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -26,6 +12,17 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const supabaseAdmin = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      }
+    }
+  );
 
   try {
     const signature = req.headers.get('stripe-signature');
@@ -42,6 +39,10 @@ serve(async (req) => {
       console.error('Webhook secret not configured');
       throw new Error('Webhook secret not configured');
     }
+
+    const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') || '', {
+      apiVersion: '2023-10-16',
+    });
 
     console.log('Constructing Stripe event...');
     const event = stripe.webhooks.constructEvent(
@@ -61,16 +62,13 @@ serve(async (req) => {
           throw new Error('No customer or subscription found in session');
         }
 
-        // Fetch the subscription details
-        const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
-        console.log('Subscription retrieved:', subscription.id);
+        // Fetch the complete subscription details
+        const subscription = await stripe.subscriptions.retrieve(session.subscription as string, {
+          expand: ['default_payment_method', 'items.data.price']
+        });
+        console.log('Full subscription details retrieved:', subscription.id);
 
-        // Get the payment method details
-        const paymentMethod = subscription.default_payment_method
-          ? await stripe.paymentMethods.retrieve(subscription.default_payment_method as string)
-          : null;
-
-        // Get customer details to find email
+        // Get customer details
         const customer = await stripe.customers.retrieve(session.customer as string);
         console.log('Customer retrieved:', customer.id);
 
@@ -92,15 +90,19 @@ serve(async (req) => {
 
         console.log('Updating subscription for user:', profileData.id);
 
-        // Get price details
-        const price = subscription.items.data[0].price;
+        // Get the first subscription item's price (assuming one price per subscription)
+        const subscriptionItem = subscription.items.data[0];
+        const price = subscriptionItem.price;
 
-        // Update stripe_subscriptions table with all details
+        // Get payment method details
+        const paymentMethod = subscription.default_payment_method as Stripe.PaymentMethod;
+
+        // Update stripe_subscriptions table with complete details
         const { error: subscriptionError } = await supabaseAdmin
           .from('stripe_subscriptions')
           .upsert({
             user_id: profileData.id,
-            stripe_customer_id: session.customer as string,
+            stripe_customer_id: customer.id,
             stripe_subscription_id: subscription.id,
             subscription_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
             subscription_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
