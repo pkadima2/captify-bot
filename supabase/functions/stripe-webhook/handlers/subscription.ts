@@ -20,9 +20,9 @@ export const handleSubscriptionUpdate = async (
       .from('stripe_subscriptions')
       .select('*')
       .eq('user_id', profileId)
-      .single();
+      .maybeSingle();
 
-    if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 is "no rows returned"
+    if (fetchError) {
       console.error('Error fetching existing subscription:', fetchError);
       throw fetchError;
     }
@@ -30,11 +30,11 @@ export const handleSubscriptionUpdate = async (
     console.log('Existing subscription:', existingSubscription);
 
     // Perform the upsert with conflict handling
-    const { data: upsertData, error: subscriptionError } = await supabaseAdmin
+    const { error: subscriptionError } = await supabaseAdmin
       .from('stripe_subscriptions')
       .upsert(subscriptionData, {
         onConflict: 'user_id',
-        returning: 'minimal' // Add this to reduce response size
+        returning: 'minimal'
       });
 
     if (subscriptionError) {
@@ -98,12 +98,14 @@ export const formatSubscriptionData = (
       interval_count: price.recurring?.interval_count || null,
       subscription_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
       subscription_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+      billing_cycle_anchor: subscription.billing_cycle_anchor ? new Date(subscription.billing_cycle_anchor * 1000).toISOString() : null,
       cancel_at: subscription.cancel_at ? new Date(subscription.cancel_at * 1000).toISOString() : null,
       canceled_at: subscription.canceled_at ? new Date(subscription.canceled_at * 1000).toISOString() : null,
       payment_method: paymentMethod?.type || null,
       status: subscription.status,
       is_active: isSubscriptionActive(subscription.status),
       metadata: subscription.metadata || {},
+      last_payment_error: subscription.last_payment_error?.message || null,
       updated_at: new Date().toISOString()
     };
   } catch (error) {
